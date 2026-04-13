@@ -1,4 +1,4 @@
-import { AuditActionType, RequestStatus } from "@prisma/client";
+import { AuditActionType } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -41,11 +41,11 @@ export async function POST(
     return NextResponse.json({ error: "Request not found" }, { status: 404 });
   }
 
-  if (target.status !== RequestStatus.PENDING) {
+  if (target.status !== "PENDING") {
     return NextResponse.json({ error: "Request already resolved" }, { status: 409 });
   }
 
-  const decision = parsed.data.decision as RequestStatus.APPROVED | RequestStatus.REJECTED;
+  const decision = parsed.data.decision;
 
   await prisma.$transaction(async (tx) => {
     await tx.requestApproval.create({
@@ -65,7 +65,7 @@ export async function POST(
       },
     });
 
-    if (decision === RequestStatus.APPROVED && !target.assignment) {
+    if (decision === "APPROVED" && !target.assignment) {
       await tx.accessAssignment.create({
         data: {
           userId: target.requesterId,
@@ -81,10 +81,7 @@ export async function POST(
     await tx.auditLog.create({
       data: {
         actorUserId: session.user.id,
-        action:
-          decision === RequestStatus.APPROVED
-            ? AuditActionType.ACCESS_REQUEST_APPROVED
-            : AuditActionType.ACCESS_REQUEST_REJECTED,
+        action: decision === "APPROVED" ? AuditActionType.ACCESS_REQUEST_APPROVED : AuditActionType.ACCESS_REQUEST_REJECTED,
         targetType: "ACCESS_REQUEST",
         targetId: target.id,
         metadata: { note: parsed.data.note ?? null },
@@ -94,4 +91,3 @@ export async function POST(
 
   return NextResponse.json({ ok: true });
 }
-
