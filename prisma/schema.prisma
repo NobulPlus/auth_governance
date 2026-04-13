@@ -1,0 +1,197 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum InstitutionType {
+  PUBLIC
+  PRIVATE
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  SECURITY_ADMIN
+  APPROVER
+  AUDITOR
+  STAFF
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PROVISIONED
+  CLOSED
+}
+
+enum ReviewStatus {
+  DUE
+  COMPLETED
+  OVERDUE
+}
+
+enum AuditActionType {
+  LOGIN_SUCCESS
+  LOGIN_FAILURE
+  MFA_CHALLENGE
+  ACCESS_REQUEST_CREATED
+  ACCESS_REQUEST_APPROVED
+  ACCESS_REQUEST_REJECTED
+  ACCOUNT_DEACTIVATED
+  ROLE_CHANGED
+  REVIEW_COMPLETED
+}
+
+model User {
+  id                   String                 @id @default(cuid())
+  email                String                 @unique
+  name                 String?
+  passwordHash         String?
+  institutionType      InstitutionType
+  role                 UserRole               @default(STAFF)
+  mfaEnabled           Boolean                @default(false)
+  isActive             Boolean                @default(true)
+  lastLoginAt          DateTime?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  accounts             Account[]
+  sessions             Session[]
+  accessRequests       AccessRequest[]        @relation("Requester")
+  approvals            RequestApproval[]
+  accessAssignments    AccessAssignment[]     @relation("Assignee")
+  assignmentsGranted   AccessAssignment[]     @relation("Grantor")
+  reviewsOwned         AccessReview[]         @relation("ReviewOwner")
+  reviewItems          AccessReviewItem[]
+  auditLogs            AuditLog[]
+}
+
+model AccessRequest {
+  id                String            @id @default(cuid())
+  requesterId       String
+  systemName        String
+  requestedRole     String
+  businessJustify   String
+  status            RequestStatus     @default(PENDING)
+  requestedAt       DateTime          @default(now())
+  completedAt       DateTime?
+  requester         User              @relation("Requester", fields: [requesterId], references: [id], onDelete: Cascade)
+  approvals         RequestApproval[]
+  assignment        AccessAssignment?
+}
+
+model RequestApproval {
+  id               String        @id @default(cuid())
+  accessRequestId  String
+  approverId       String
+  decision         RequestStatus
+  note             String?
+  decidedAt        DateTime      @default(now())
+  accessRequest    AccessRequest @relation(fields: [accessRequestId], references: [id], onDelete: Cascade)
+  approver         User          @relation(fields: [approverId], references: [id], onDelete: Restrict)
+
+  @@index([accessRequestId])
+}
+
+model AccessAssignment {
+  id               String        @id @default(cuid())
+  userId           String
+  systemName       String
+  effectiveRole    String
+  grantedById      String
+  grantedAt        DateTime      @default(now())
+  expiresAt        DateTime?
+  isPrivileged     Boolean       @default(false)
+  isActive         Boolean       @default(true)
+  sourceRequestId  String?       @unique
+  user             User          @relation("Assignee", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy        User          @relation("Grantor", fields: [grantedById], references: [id], onDelete: Restrict)
+  sourceRequest    AccessRequest? @relation(fields: [sourceRequestId], references: [id], onDelete: SetNull)
+  reviewItems      AccessReviewItem[]
+
+  @@index([userId, systemName])
+}
+
+model AccessReview {
+  id              String             @id @default(cuid())
+  reviewOwnerId   String
+  title           String
+  dueDate         DateTime
+  status          ReviewStatus       @default(DUE)
+  createdAt       DateTime           @default(now())
+  completedAt     DateTime?
+  reviewOwner     User               @relation("ReviewOwner", fields: [reviewOwnerId], references: [id], onDelete: Restrict)
+  items           AccessReviewItem[]
+}
+
+model AccessReviewItem {
+  id                 String            @id @default(cuid())
+  reviewId           String
+  assignmentId       String
+  reviewerId         String
+  keepAccess         Boolean?
+  comment            String?
+  reviewedAt         DateTime?
+  review             AccessReview      @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  assignment         AccessAssignment  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  reviewer           User              @relation(fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@unique([reviewId, assignmentId])
+}
+
+model AuditLog {
+  id             String          @id @default(cuid())
+  actorUserId    String?
+  action         AuditActionType
+  targetType     String
+  targetId       String?
+  ipAddress      String?
+  userAgent      String?
+  metadata       Json?
+  createdAt      DateTime        @default(now())
+  actor          User?           @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([action, createdAt])
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String? @db.Text
+  access_token       String? @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String? @db.Text
+  session_state      String?
+  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id            String   @id @default(cuid())
+  sessionToken  String   @unique
+  userId        String
+  expires       DateTime
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
